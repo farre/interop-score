@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+</style>
+<script src="taskcluster-client-web.js"></script>
+<script type="module" src="progress.js"></script>
+
+<select id="select">
+    <option selected>mozilla-central</option>
+    <option>mozilla-release</option>
+    <option>try</option>
+    <option>mozilla-beta</option>
+    <option>mozilla-inbound</option>
+    <option>autoland</option>
+</select>
+<select id="year">
+    <option>2021</option>
+    <option>2022</option>
+    <option>2023</option>
+    <option>2024</option>
+    <option selected>2025</option>
+</select> <input type="button" id="button" value="Calculate"></input><br>
+<div id="results"></div>
+<table style="display:none" id="failureTableTemplate">
+    <thead>
+        <th style="text-align: start">Failing test</th>
+        <th></th>
+        <th></th>
+    </thead>
+</table>
+<script type="module">
+    import { Progress } from "./progress.js"
+
+    const once = true;
+    for (const option of [].concat(select.options, year.options)) {
+        option.value = option.text;
+    }
+
+    function getChannel() {
+        return select.selectedOptions[0].value;
+    }
+
+    function cloneWithoutAttributes(e) {
+        const result = e.cloneNode(true);
+        result.id = "";
+        result.style = "";
+        return result;
+    }
+
+    const calculate = async () => {
+        button.disabled = true;
+        const url = new URL(location);
+        const params = url.searchParams;
+        const commit = params.get("commit") ?? undefined;
+        const remote = params.get("remote") ?? new URL(location.href).origin.includes("github");
+
+        const channel = getChannel();
+        const filters = [
+            "web-platform-tests",
+            "linux.*-64",
+            "/opt",
+            "!-nofis|-headless|-asan|-tsan|-ccov|wayland",
+        ];
+        const progress = new Progress(channel, { filters, commit, year: year.value, remote });
+        const detailsTemplate = document.createElement("details");
+        detailsTemplate.appendChild(document.createElement("summary"));
+        detailsTemplate.appendChild(document.createElement("div"));
+        const failureRowTemplate = document.createElement("tr");
+        for (const _ of [1,2,3]) {
+            failureRowTemplate.appendChild(document.createElement("td"));
+        }
+
+        const createLink = (href, text) => {
+            const a = document.createElement("a");
+            a.innerText = text;
+            a.href = href;
+            return a;
+        }
+
+        try {
+            const result = await progress.getCompletedTasks();
+            const artifacts = await progress.downloadArtifacts(result.tasks);
+            const { expectedTests, expectedCategories, expectedFailures, expectedCategoryDescriptions } = await progress.getExpectedTests();
+            const tests = progress.loadTests(artifacts, expectedTests);
+            const { scores, failures, total } = progress.computeScore(tests, expectedCategories);
+            const testUrls = [
+                { key: "wpt.fyi", url: "https://wpt.fyi/results" },
+                { key: "test", url: `https://searchfox.org/mozilla-central/source/testing/web-platform/tests` }
+            ];
+            let totalScore = 0;
+            let grandTotal = 0;
+            const output = [];
+            for (const [category, { score, total }] of scores.entries()) {
+                totalScore += score;
+                grandTotal += total;
+                const description = `${expectedCategoryDescriptions[category].description}: ${new Number(100 * (score / total)).toFixed(1)}`;
+                output.push({ description, category });
+            }
+            output.sort(({ description: x }, { description: y }) => x.replace(/[^A-Za-z]/, "").toLowerCase() > y.replace(/[^A-Za-z]/, "").toLocaleLowerCase());
+            const summary = document.createElement("span");
+            summary.style = "display:none";
+            const summaryElements = [createLink(), document.createElement("span"), document.createElement("br")];
+            progress.getCommitDescription().then(({commit, description, href}) => {
+                summaryElements[0].innerText = commit;
+                summaryElements[0].href = href;
+                summaryElements[1].appendChild(document.createTextNode(` ${description}`));
+                summary.style = "";
+            })
+            summary.append(...summaryElements);
+
+            results.replaceChildren(summary, ...output.map(e => {
+                const details = detailsTemplate.cloneNode(true);
+                const failureTable = cloneWithoutAttributes(failureTableTemplate.cloneNode(true));
+                const createLinksItem = (test) => {
+                    const failureRow = failureRowTemplate.cloneNode(true);
+                    let entry = 0;
+                    failureRow.children[entry++].appendChild(document.createTextNode(`${test}: `));
+                    for (const { key, url } of testUrls) {
+                        failureRow.children[entry++].appendChild(createLink(`${url}${test}`, key));
+                    }
+                    return failureRow;
+                }
+                let hasFailures = false;
+                for (const test of expectedCategories[e.category]) {
+                    if (failures.has(test)) {
+                        hasFailures = true;
+                        failureTable.appendChild(createLinksItem(test));
+                    }
+                }
+                details.children[0].appendChild(document.createTextNode(e.description));
+                if (hasFailures) {
+                    details.children[1].appendChild(failureTable);
+                }
+                return details;
+            }));
+            results.appendChild(document.createTextNode(`Total: ${new Number(100 * (totalScore / grandTotal)).toFixed(1)}`))
+            results.appendChild(document.createElement("br"));
+            results.appendChild(document.createTextNode(`Failing tests: ${failures.size} / ${total}`));
+        } catch (e) {
+            const summary = document.createTextNode(e.message);
+            results.replaceChildren(summary);
+            button.value = "Retry";
+        } finally {
+            button.disabled = false;
+            params.set("commit", progress.commit);
+            history.replaceState({}, null, url);
+        }
+    }
+
+    button.addEventListener("click", calculate);
+</script>
