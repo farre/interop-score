@@ -90,10 +90,13 @@
             let totalScore = 0;
             let grandTotal = 0;
             const output = [];
+            let entryScores = 0;
             for (const [category, { score, total }] of scores.entries()) {
                 totalScore += score;
                 grandTotal += total;
-                const description = `${expectedCategoryDescriptions[category].description}: ${new Number(100 * (score / total)).toFixed(1)}`;
+                const entryScore = (score / total);
+                entryScores += entryScore;
+                const description = `${expectedCategoryDescriptions[category].description}: ${new Number(100 * entryScore).toFixed(1)}`;
                 output.push({ description, category });
             }
             output.sort(({ description: x }, { description: y }) => x.replace(/[^A-Za-z]/, "").toLowerCase() > y.replace(/[^A-Za-z]/, "").toLocaleLowerCase());
@@ -133,7 +136,7 @@
                 }
                 return details;
             }));
-            results.appendChild(document.createTextNode(`Total: ${new Number(100 * (totalScore / grandTotal)).toFixed(1)}`))
+            results.appendChild(document.createTextNode(`Total: ${new Number(100 * (entryScores / scores.size)).toFixed(1)}`))
             results.appendChild(document.createElement("br"));
             results.appendChild(document.createTextNode(`Failing tests: ${failures.size} / ${total}`));
         } catch (e) {
