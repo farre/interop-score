@@ -69,6 +69,8 @@ export class Progress {
     );
   }
 
+  #log = () => {};
+
   get interopURL() {
     console.log(
       "Warning, not possible to fetch interop data remotely, falling back on local copy"
@@ -104,7 +106,7 @@ export class Progress {
     return fetchJSON(this.metadataURL);
   }
 
-  constructor(channel, { filters, commit, year, remote } = {}) {
+  constructor(channel, { filters, commit, year, remote, log } = {}) {
     if (channel) {
       this.#channel = channel;
     }
@@ -115,6 +117,10 @@ export class Progress {
 
     if (filters && filters.length && filters.join === Array.prototype.join) {
       this.#regexes = createFilters(filters);
+    }
+
+    if (log) {
+      this.#log = log;
     }
 
     this.#hg = `https://hg.mozilla.org/${(() => {
@@ -171,11 +177,11 @@ export class Progress {
     let continuationToken = undefined;
     const revisions = {};
     let count = 0;
+    const path = `gecko.v2.${this.#channel}.revision`;
     do {
-      const result = await this.#index.listNamespaces(
-        `gecko.v2.${this.#channel}.revision`,
-        { continuationToken }
-      );
+      const result = await this.#index.listNamespaces(path, {
+        continuationToken,
+      });
       continuationToken = result.continuationToken;
       for (const value of result.namespaces) {
         revisions[value.name] = value.namespace;
@@ -186,10 +192,14 @@ export class Progress {
   }
 
   async completedTasks() {
+    this.#log(`Getting revisions`);
     const { revisions, count } = await this.#getRevisions();
+    this.#log(`Got ${count} revisions`);
     let size = count;
+    this.#log(`Finding first completed task`);
     while (size) {
       for await (const commit of this.#getCommits()) {
+        this.#log(`Checking if ${commit} has completed`);
         if (commit.error) {
           throw new Error(commit.error);
         }
@@ -251,6 +261,7 @@ export class Progress {
   async getCompletedTasks() {
     const data = this.#restoreCompletedTasks();
     if (data) {
+      this.#log("Use previously fetched completed tasks");
       const { tasks } = data;
       const commit = this.#commit;
       return { tasks: new Set(tasks), commit };
@@ -264,6 +275,7 @@ export class Progress {
   }
 
   async downloadArtifacts(tasks) {
+    this.#log("Downloading artifacts");
     const filename = "wptreport.json";
     const urls = [];
     for (const task of tasks) {
@@ -292,6 +304,7 @@ export class Progress {
   }
 
   async getExpectedTests() {
+    this.#log("Getting expected tests");
     const year = this.#year;
     const categoriesJSON = await this.categoriesJSON;
     const interopJSON = await this.interopJSON;
@@ -344,6 +357,7 @@ export class Progress {
   }
 
   loadTests(wptreports, expected) {
+    this.#log("Loading tests");
     const result = new Map();
     for (const { results } of wptreports) {
       for (const entry of results) {
@@ -368,6 +382,7 @@ export class Progress {
   }
 
   getExpectedCategoriesByTest(expectedCategories) {
+    this.#log("Getting expected test categories");
     const categoriesByTest = new Map();
     for (const [category, tests] of Object.entries(expectedCategories)) {
       for (const test of tests) {
@@ -419,6 +434,7 @@ export class Progress {
   }
 
   computeScore(tests, expectedCategories) {
+    this.#log("Computing score");
     const categoriesByTest =
       this.getExpectedCategoriesByTest(expectedCategories);
     const failures = new Set(categoriesByTest.keys());

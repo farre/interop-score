@@ -1,10 +1,18 @@
 <!DOCTYPE html>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
+  @import "dots.css";
+
+  @keyframes fadein {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .log {
+    animation: fadein 1s ease-in alternate 2;
+}
 </style>
 <script src="taskcluster-client-web.js"></script>
 <script type="module" src="progress.js"></script>
-
 <select id="select">
     <option selected>mozilla-central</option>
     <option>mozilla-release</option>
@@ -19,8 +27,42 @@
     <option>2023</option>
     <option>2024</option>
     <option selected>2025</option>
-</select> <input type="button" id="button" value="Calculate"></input><br>
+</select> <input type="button" id="button" value="Calculate"></input> <span class="" id="dots" width="15px">&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
 <div id="results"></div>
+<script>
+    dots.onanimationend = () => {
+        dots.setAttribute('class', `loader1`);
+    }
+
+    function update(str) {
+        results.setAttribute("class", "");
+        results.innerText = str;
+        results.offsetWidth;
+        results.setAttribute("class", "log");
+    }
+
+    const logs = [];
+    var animating = true;
+    results.onanimationend = () => {
+        if (!logs.length || !animating) {
+            console.log(`No pending logs`);
+            results.innerText = "";
+            return;
+        }
+
+        const str = logs.shift();
+        update(str);
+    }
+
+    function progressCallback(str) {
+        if (results.innerText != "") {
+            console.log(`Schedule log ${str}`);
+            logs.push(str);
+        } else {
+            update(str);
+        }
+    }
+</script>
 <table style="display:none" id="failureTableTemplate">
     <thead>
         <th style="text-align: start">Failing test</th>
@@ -48,6 +90,8 @@
     }
 
     const calculate = async () => {
+        dots.setAttribute("class", "loader0");
+        results.innerHTML = "";
         button.disabled = true;
         const url = new URL(location);
         const params = url.searchParams;
@@ -61,7 +105,7 @@
             "/opt",
             "!-nofis|-headless|-asan|-tsan|-ccov|wayland",
         ];
-        const progress = new Progress(channel, { filters, commit, year: year.value, remote });
+        const progress = new Progress(channel, { filters, commit, year: year.value, remote, log: progressCallback });
         const detailsTemplate = document.createElement("details");
         detailsTemplate.appendChild(document.createElement("summary"));
         detailsTemplate.appendChild(document.createElement("div"));
@@ -111,6 +155,11 @@
             })
             summary.append(...summaryElements);
 
+            animating = false;
+            results.style = "";
+            results.innerText = "";
+            results.setAttribute("class", "");
+
             results.replaceChildren(summary, ...output.map(e => {
                 const details = detailsTemplate.cloneNode(true);
                 const failureTable = cloneWithoutAttributes(failureTableTemplate.cloneNode(true));
@@ -144,9 +193,11 @@
             results.replaceChildren(summary);
             button.value = "Retry";
         } finally {
+            dots.setAttribute("class", "");
             button.disabled = false;
             params.set("commit", progress.commit);
             history.replaceState({}, null, url);
+            dots.style = "display: none;";
         }
     }
 
