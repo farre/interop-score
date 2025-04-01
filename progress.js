@@ -63,6 +63,8 @@ export class Progress {
 
   #remote = false;
 
+  #scan = false;
+
   #filter({ task }) {
     return this.#regexes.every(({ re, mod }) =>
       mod(task.metadata.name.match(re))
@@ -106,7 +108,7 @@ export class Progress {
     return fetchJSON(this.metadataURL);
   }
 
-  constructor(channel, { filters, commit, year, remote, log } = {}) {
+  constructor(channel, { filters, commit, year, remote, log, scan } = {}) {
     if (channel) {
       this.#channel = channel;
     }
@@ -137,6 +139,8 @@ export class Progress {
     })()}`;
 
     this.#remote = !!remote;
+
+    this.#scan = !!scan;
   }
 
   get commit() {
@@ -238,7 +242,10 @@ export class Progress {
         size--;
 
         if (!complete) {
-          continue;
+          if (this.#scan) {
+            continue;
+          }
+          throw new Error(`Commit ${commit} is not complete`);
         }
 
         return { tasks: completedTasks, commit };

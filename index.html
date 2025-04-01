@@ -9,7 +9,15 @@
   }
   .log {
     animation: fadein 1s ease-in alternate 2;
-}
+  }
+
+  #sha {
+    display: none;
+  }
+
+  #mode:has(option:not([value="Scan"]):checked) ~ #sha {
+    display: inline-block;
+  }
 </style>
 <script src="taskcluster-client-web.js"></script>
 <script type="module" src="progress.js"></script>
@@ -21,6 +29,12 @@
     <option>mozilla-inbound</option>
     <option>autoland</option>
 </select>
+<select id="mode">
+    <option>Scan</option>
+    <option>Scan from</option>
+    <option>Commit</option>
+</select>
+<input type="text" id="sha" pattern="[\da-f,A-F]{7,40}"></input>
 <select id="year">
     <option>2021</option>
     <option>2022</option>
@@ -45,7 +59,6 @@
     var animating = true;
     results.onanimationend = () => {
         if (!logs.length || !animating) {
-            console.log(`No pending logs`);
             results.innerText = "";
             return;
         }
@@ -74,8 +87,10 @@
     import { Progress } from "./progress.js"
 
     const once = true;
-    for (const option of [].concat(select.options, year.options)) {
-        option.value = option.text;
+    for (const options of [select.options, year.options, mode.options]) {
+        for (const option of Array.from(options)) {
+            option.value = option.text;
+        }
     }
 
     function getChannel() {
@@ -89,13 +104,29 @@
         return result;
     }
 
+    function getCommit() {
+        const scan = document.querySelector("#mode option:checked").value.startsWith("Scan");
+        let commit = document.querySelector("#mode option:checked").value !== "Scan" ? sha.value : undefined;
+
+        return {scan, commit};
+    }
+
+    function setCommit(commit) {
+        mode.options.selectedIndex = 2;
+        sha.value = commit;
+    }
+
     const calculate = async () => {
         dots.setAttribute("class", "loader0");
         results.innerHTML = "";
         button.disabled = true;
+        if (!sha.checkValidity()) {
+            mode.options.selectedIndex = 0;
+        }
+
         const url = new URL(location);
         const params = url.searchParams;
-        const commit = params.get("commit") ?? undefined;
+        const {commit, scan} = getCommit();
         const remote = params.get("remote") ?? new URL(location.href).origin.includes("github");
 
         const channel = getChannel();
@@ -105,7 +136,7 @@
             "/opt",
             "!-nofis|-headless|-asan|-tsan|-ccov|wayland",
         ];
-        const progress = new Progress(channel, { filters, commit, year: year.value, remote, log: progressCallback });
+        const progress = new Progress(channel, { filters, commit, year: year.value, remote, log: progressCallback, scan });
         const detailsTemplate = document.createElement("details");
         detailsTemplate.appendChild(document.createElement("summary"));
         detailsTemplate.appendChild(document.createElement("div"));
@@ -189,13 +220,18 @@
             results.appendChild(document.createElement("br"));
             results.appendChild(document.createTextNode(`Failing tests: ${failures.size} / ${total}`));
         } catch (e) {
-            const summary = document.createTextNode(e.message);
-            results.replaceChildren(summary);
             button.value = "Retry";
+            animating = false;
+            results.style = "";
+            results.innerText = "";
+            logs.length = 0;
+            dots.setAttribute("class", "");
+            progressCallback(e.message);
+            results.setAttribute("class", "");
         } finally {
             dots.setAttribute("class", "");
             button.disabled = false;
-            params.set("commit", progress.commit);
+            setCommit(progress.commit);
             history.replaceState({}, null, url);
             dots.style = "display: none;";
         }
