@@ -226,6 +226,7 @@ export class Progress {
           const tasks = result.tasks.filter(this.#filter, this);
           complete = tasks.every(({ status }) => {
             switch (status.state) {
+              case "failed":
               case "completed":
                 return true;
               default:
